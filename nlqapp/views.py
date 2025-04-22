@@ -27,24 +27,56 @@ for name, data in dfs.items():
     con.register(name, data)
 
 
+def is_safe_sql(sql_query):
+    dangerous_keywords = ["DROP", "DELETE", "UPDATE", "INSERT", "ALTER", "TRUNCATE"]
+    for keyword in dangerous_keywords:
+        if f" {keyword} " in f" {sql_query.upper()} ":
+            return False
+    return True
+
+
 def index(request):
     result = None
     query = ""
     chart_img = ""
     result_html = ""
+
     if request.method == "POST":
-        question = request.POST.get("question")
+        question = request.POST.get("question", "").strip()
+        if not question or len(question) < 5 or len(question) > 200:
+            result_html = "<div class='error'>Please enter a valid question (5-200 characters).</div>"
+            return render(request, "index.html", {"result": result_html})
+
         query = sql_generator.generate_sql(question, model="gpt-4o-mini")
+
+        if not is_safe_sql(query):
+            result_html = "<div class='error'>Unsafe SQL query detected. Please refine your question.</div>"
+            return render(request, "index.html", {"result": result_html})
 
         try:
             df = con.execute(query).df()
-            result_html = df.to_html(classes="table table-striped", index=False)
+            if len(df) > 10:
+                df_display = df.head(10)
+                result_html = (
+                    "<p><strong>Note:</strong> Display limited to 10 rows</p>"
+                    + df_display.to_html(classes="table table-striped", index=False)
+                )
+            else:
+                result_html = df.to_html(classes="table table-striped", index=False)
 
             sample = df.head(5).to_dict(orient="records")
+
             chart_code = chart_generator.generate_chart_code(sample, question)
 
+            if chart_code.startswith("```python"):
+                chart_code = chart_code[9:]
+            elif chart_code.startswith("```"):
+                chart_code = chart_code[3:]
+            if chart_code.endswith("```"):
+                chart_code = chart_code[:-3]
+
             if chart_code:
-                # Set non-interactive matplotlib backend to prevent window opening
+
                 import matplotlib
 
                 matplotlib.use("Agg")
@@ -53,15 +85,19 @@ def index(request):
                     "pd": pd,
                     "sns": __import__("seaborn"),
                     "plt": plt,
-                    "json": __import__("json"),
+                    "sample_json": sample,
                 }
-                namespace["sample_json"] = sample
+
+                df_safe = df.copy()
+                for col in df_safe.select_dtypes(include=["datetime"]):
+                    df_safe[col] = df_safe[col].dt.strftime("%Y-%m-%d")
+
                 chart_code = chart_code.replace(
-                    "df = pd.DataFrame(...)", "df = pd.DataFrame(sample_json)"
+                    "df = pd.DataFrame(sample_json)",
+                    f"df = pd.DataFrame({df_safe.to_dict(orient='records')})",
                 )
 
                 chart_code = chart_code.replace("plt.show()", "")
-                # add tight_layout
                 chart_code = chart_code + "\nplt.tight_layout()"
 
                 exec(chart_code, namespace)
