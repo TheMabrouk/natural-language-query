@@ -1,0 +1,5 @@
+.env
+tmp_code.py
+nlqapp/data/database.xlsx
+*.pyc
+db.sqlite3
