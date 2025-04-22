@@ -2,13 +2,10 @@ pandas
 numpy
 matplotlib
 seaborn
-flask
 openai
 requests
 pyodbc
-langchain
 python-dotenv
 openpyxl
 django
 duckdb
-fastapi
