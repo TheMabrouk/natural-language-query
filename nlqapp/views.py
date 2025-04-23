@@ -1,4 +1,5 @@
 import os
+import re
 import duckdb
 import base64
 import openai
@@ -35,6 +36,47 @@ def is_safe_sql(sql_query):
     return True
 
 
+def preprocess_query(query: str) -> str:
+    query = re.sub(
+        r"(CURRENT_DATE\s*-\s*INTERVAL\s*'[\d\s\w]+')", r"CAST(\1 AS DATE)", query
+    )
+    query = re.sub(
+        r"EXTRACT\((YEAR|MONTH|DAY|HOUR|MINUTE|SECOND) FROM ([a-zA-Z0-9_\.]+)\)",
+        r"EXTRACT(\1 FROM CAST(\2 AS DATE))",
+        query,
+    )
+    query = re.sub(
+        r"([a-zA-Z0-9_\.]+)\s*(=|>|<|>=|<=|!=)\s*'(\d{4}-\d{2}-\d{2})'",
+        r"CAST(\1 AS DATE) \2 DATE '\3'",
+        query,
+    )
+    query = re.sub(
+        r"(DATE_TRUNC|DATE_PART)\s*\(\s*'([^']+)'\s*,\s*([a-zA-Z0-9_\.]+)\s*\)",
+        r"\1('\2', CAST(\3 AS DATE))",
+        query,
+    )
+    query = re.sub(
+        r"(CAST\([a-zA-Z0-9_\.]+\s*AS\s*BIGINT\)\s*-*\s*CAST\([a-zA-Z0-9_\.]+ AS BIGINT\))",
+        lambda m: m.group(0).replace(
+            "CAST", "CAST(CAST"
+        ),  # Wrap timestamps in double CAST
+        query,
+    )
+    query = re.sub(
+        r"(JOIN\s+[a-zA-Z0-9_]+\s+ON\s+[a-zA-Z0-9_\.]+\s*=\s*)([a-zA-Z0-9_\.]+)(\s+(?:AND|OR|WHERE))",
+        lambda m: (
+            f"{m.group(1)}CAST({m.group(2)} AS DATE){m.group(3)}"
+            if any(
+                date_word in m.group(0).lower()
+                for date_word in ["date", "time", "day", "month", "year"]
+            )
+            else m.group(0)
+        ),
+        query,
+    )
+    return query
+
+
 def index(request):
     result = None
     query = ""
@@ -54,6 +96,7 @@ def index(request):
             return render(request, "index.html", {"result": result_html})
 
         try:
+            query = preprocess_query(query)
             df = con.execute(query).df()
             if len(df) > 10:
                 df_display = df.head(10)
