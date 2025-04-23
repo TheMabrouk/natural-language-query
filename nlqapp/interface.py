@@ -16,7 +16,6 @@ class SqlQueryGenerator:
         """
         self.client = client
 
-        # Store schema information
         self.schema_info = {}
 
     def load_schema_from_dataframes(self, dataframes: Dict[str, pd.DataFrame]):
@@ -152,7 +151,6 @@ class SqlQueryGenerator:
 
         sql_query = response.choices[0].message.content.strip()
 
-        # Remove markdown code block formatting if present
         if sql_query.startswith("```sql"):
             sql_query = sql_query.replace("```sql", "").replace("```", "").strip()
         elif sql_query.startswith("```"):
@@ -162,13 +160,11 @@ class SqlQueryGenerator:
 
     def validate_query(self, sql_query):
         """Check if the SQL query uses valid column names from the schema, including alias handling."""
-        # Build a mapping of lowercase column names to fully qualified names
         valid_columns = {}
         for table, info in self.schema_info.items():
             for col in info["columns"]:
                 valid_columns[col.lower()] = f"{table}.{col}"
 
-        # Step 1: Extract alias mappings
         alias_pattern = re.compile(
             r"\b(from|join)\s+([a-z_][a-z0-9_]*)\s+(?:as\s+)?([a-z_][a-z0-9_]*)",
             re.IGNORECASE,
@@ -178,7 +174,6 @@ class SqlQueryGenerator:
             _, table, alias = match
             aliases[alias.lower()] = table.lower()
 
-        # Step 2: Find all table.column references
         query_lower = sql_query.lower()
         possible_columns = re.findall(
             r"([a-z_][a-z0-9_]*)\.([a-z_][a-z0-9_]*)", query_lower
@@ -277,11 +272,9 @@ class SqlChartGenerator:
         )
         code = resp.choices[0].message.content.strip()
 
-        # Sanitize the generated code
         if not self._is_safe_code(code):
-            return ""  # Return empty string if code fails safety check
+            return ""
 
-        # Save sanitized code for debugging
         with open("tmp_code.py", "w") as f:
             f.write(code)
 
@@ -292,7 +285,6 @@ class SqlChartGenerator:
         Basic security check for the generated visualization code.
         Returns True if code passes all safety checks.
         """
-        # Check for obviously dangerous patterns
         dangerous_patterns = [
             "import os",
             "import sys",
@@ -312,7 +304,6 @@ class SqlChartGenerator:
                 print(f"Rejected chart code containing dangerous pattern: {pattern}")
                 return False
 
-        # Simple check for imports - only allow pandas, matplotlib, seaborn
         allowed_imports = ["pandas", "matplotlib", "seaborn"]
         import_lines = [line.strip() for line in code.split("\n") if "import" in line]
 
